@@ -182,3 +182,22 @@ async def _do_cot_sync(contract_ids: list[str]):
                 db.rollback()
     finally:
         db.close()
+
+
+
+# ── GET /api/cot/debug/{contract_id} ─────────────────────────────────────────
+@router.get("/debug/{contract_id}")
+async def debug_cot(contract_id: str):
+    import httpx
+    from app.services.cftc import CFTC_BASE
+    info = COT_CONTRACTS.get(contract_id.upper())
+    if not info:
+        raise HTTPException(404, f"Unknown: {contract_id}")
+    params = {
+        "$where": f"cftc_commodity_code='{info['code']}' AND report_date_as_yyyy_mm_dd >= '2024-01-01'",
+        "$limit": "2",
+        "$order": "report_date_as_yyyy_mm_dd DESC",
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(CFTC_BASE, params=params)
+    return {"code": info["code"], "status": resp.status_code, "raw": resp.json()}
