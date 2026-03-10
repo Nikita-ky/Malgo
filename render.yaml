@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: malgo-macro-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: FRED_API_KEY
+        sync: false          # set manually in Render dashboard
+      - key: DATABASE_URL
+        sync: false          # paste Supabase connection string
+      - key: ALLOWED_ORIGINS
+        value: https://your-app.netlify.app
+    healthCheckPath: /health
+    autoDeploy: true
