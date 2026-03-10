@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { api } from '../api'
+import api from '../api'
 
 const COT_CONTRACTS = {
   EUR:    { label: 'Euro FX',        cat: 'CURRENCY',      color: '#22D3EE' },
