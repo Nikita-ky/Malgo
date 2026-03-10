@@ -39,8 +39,7 @@ export function useCotData() {
     setLoading(true)
     setError(null)
     try {
-      const params = ids.map(id => `ids=${id}`).join('&')
-      const res = await api.get(`/api/cot?${params}`)
+      const res = await api.get(`/api/cot?ids=${ids.join(',')}`)
       const data = res.data
       setCotData(prev => {
         const next = { ...prev }
