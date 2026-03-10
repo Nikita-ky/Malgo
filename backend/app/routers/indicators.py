@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from datetime import datetime
 from typing import Optional
+from pydantic import BaseModel
 import logging
 
 from app.models.db import get_db, Observation, SeriesMeta
@@ -22,10 +23,13 @@ router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 
 
+class SyncRequest(BaseModel):
+    series_ids: Optional[list[str]] = None
+
+
 # ── GET /api/indicators ───────────────────────────────────────────────────────
 @router.get("/indicators")
 def list_indicators():
-    """Return full indicator registry + category definitions."""
     return {"indicators": INDICATORS, "categories": CATEGORIES}
 
 
@@ -33,7 +37,7 @@ def list_indicators():
 @router.get("/series/{series_id}")
 def get_series(
     series_id: str,
-    start: Optional[str] = Query("2000-01-01", description="Start date YYYY-MM-DD"),
+    start: Optional[str] = Query("2000-01-01"),
     db: Session = Depends(get_db),
 ):
     rows = (
@@ -94,15 +98,14 @@ def get_multiple_series(
 @router.post("/sync")
 async def sync_data(
     background_tasks: BackgroundTasks,
-    series_ids: Optional[list[str]] = None,
-    db: Session = Depends(get_db),
+    body: SyncRequest = None,
 ):
     """
     Trigger a data refresh.
     Body (optional): {"series_ids": ["UNRATE","FEDFUNDS"]}
-    If omitted, syncs all indicators.
+    If omitted or empty, syncs all indicators.
     """
-    ids_to_sync = series_ids or list(INDICATORS.keys())
+    ids_to_sync = (body.series_ids if body and body.series_ids else None) or list(INDICATORS.keys())
     background_tasks.add_task(_do_sync, ids_to_sync)
     return {"status": "sync_started", "count": len(ids_to_sync), "series": ids_to_sync}
 
@@ -117,7 +120,6 @@ async def _do_sync(series_ids: list[str]):
                 observations = await fetch_series_from_fred(sid)
                 meta_data = await fetch_series_meta(sid)
 
-                # Upsert observations
                 for obs in observations:
                     pk = f"{obs['series_id']}_{obs['date']}"
                     existing = db.get(Observation, pk)
@@ -127,7 +129,6 @@ async def _do_sync(series_ids: list[str]):
                         db.add(Observation(id=pk, series_id=obs["series_id"],
                                            date=obs["date"], value=obs["value"]))
 
-                # Upsert meta
                 meta = db.get(SeriesMeta, sid)
                 if meta:
                     meta.last_fetched = datetime.utcnow()
@@ -143,9 +144,9 @@ async def _do_sync(series_ids: list[str]):
                         last_fetched=datetime.utcnow(),
                     ))
                 db.commit()
-                logger.info(f"  ✓ {sid}: {len(observations)} observations saved")
+                logger.info(f"  OK {sid}: {len(observations)} observations saved")
             except Exception as e:
-                logger.error(f"  ✗ {sid} failed: {e}")
+                logger.error(f"  FAIL {sid}: {e}")
                 db.rollback()
     finally:
         db.close()
@@ -154,7 +155,6 @@ async def _do_sync(series_ids: list[str]):
 # ── GET /api/sync/status ──────────────────────────────────────────────────────
 @router.get("/sync/status")
 def sync_status(db: Session = Depends(get_db)):
-    """Return last-fetched time for each series."""
     rows = db.execute(select(SeriesMeta)).scalars().all()
     return {
         r.series_id: {
